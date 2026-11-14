@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Sync the README 'Complete TODO List' section with the current dev code.
+"""Rebuild the README 'Complete TODO List' section from the main baseline.
 
-Strategy (per task requirements):
-- Use the existing README TODO list as the baseline.
-- Only apply TODO additions/removals/line updates introduced by main..dev changes.
-- For every .py file changed between main and dev, re-extract its TODOs.
-- Keep baseline entries for all unchanged files untouched.
-- Sort entries by file path (lexicographic) and then by line number (ascending).
+Rules:
+- Start from the TODO list in origin/main's README.md (the baseline).
+- For .py files changed between main and dev (excluding this temporary helper),
+  re-extract TODOs from the dev working tree.
+- Keep all baseline entries for unchanged files untouched.
+- Sort by file path (lexicographic) then line number (ascending).
 """
 import os
 import re
@@ -22,8 +22,12 @@ HEADING = '### \U0001F4DD Complete TODO List'
 ENTRY_RE = re.compile(r'^- \[ \] \*\*(?P<path>.+?):(?P<line>\d+)\*\* - (?P<text>.*)$')
 
 
+def git_show(ref, path):
+    return subprocess.check_output(
+        ['git', 'show', f'{ref}:{path}'], text=True, encoding='utf-8')
+
+
 def extract_todos(filepath):
-    """Extract TODO entries from a Python file using the baseline's rule."""
     entries = []
     with open(filepath, 'r', encoding='utf-8') as f:
         for lineno, line in enumerate(f, 1):
@@ -33,61 +37,40 @@ def extract_todos(filepath):
             text = line[idx + 4:].lstrip()
             if text.startswith(':'):
                 text = text[1:]
-            text = text.strip()
-            entries.append((filepath.replace(os.sep, '/'), lineno, text))
+            entries.append((filepath.replace(os.sep, '/'), lineno, text.strip()))
     return entries
 
 
 def changed_py_files():
-    """List .py files changed between main and dev."""
-    rev_specs = [
-        'origin/main...HEAD',
-        'main...HEAD',
-        'origin/main..HEAD',
-        'main..HEAD',
-    ]
-    for rev in rev_specs:
-        try:
-            out = subprocess.check_output(
-                ['git', 'diff', '--name-only', rev, '--', '*.py'],
-                text=True, stderr=subprocess.DEVNULL,
-            )
-            files = [line.strip() for line in out.splitlines() if line.strip()]
-            if files:
-                return files
-        except subprocess.CalledProcessError:
-            continue
-    # Fallback: known changed files for this repository state.
-    return [
-        'luffy/deepscaler/utils.py',
-        'luffy/verl/verl/protocol.py',
-    ]
+    out = subprocess.check_output(
+        ['git', 'diff', '--name-only', 'origin/main...HEAD', '--', '*.py'],
+        text=True, stderr=subprocess.DEVNULL)
+    files = [line.strip() for line in out.splitlines() if line.strip()]
+    # Ignore the temporary helper / workflow internals; only real source changes count.
+    files = [p for p in files if not p.startswith('tools/') and not p.startswith('.github/')]
+    return files
 
 
-def full_scan_log():
-    """Scan all .py files (logging only) to report the complete TODO picture."""
-    total = 0
-    files = 0
-    for dirpath, dirnames, filenames in os.walk('.'):
-        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
-        for name in filenames:
-            if name.endswith('.py'):
-                path = os.path.join(dirpath, name)
-                try:
-                    todos = extract_todos(path)
-                except (UnicodeDecodeError, OSError):
-                    continue
-                if todos:
-                    files += 1
-                    total += len(todos)
-    print(f'Full scan: {total} TODO markers across {files} .py files')
+def parse_entries(readme_text):
+    lines = readme_text.split('\n')
+    h = lines.index(HEADING)
+    e = None
+    for i in range(h + 1, len(lines)):
+        if lines[i].startswith('## '):
+            e = i
+            break
+    if e is None:
+        raise RuntimeError('next heading not found')
+    entries = []
+    for line in lines[h + 1:e]:
+        m = ENTRY_RE.match(line)
+        if m:
+            entries.append((m.group('path'), int(m.group('line')), m.group('text')))
+    return lines, h, e, entries
 
 
-def main():
-    full_scan_log()
-    changed = changed_py_files()
-    print('Changed .py files between main and dev:', changed)
-
+def build_entry_lines(baseline_entries, changed):
+    kept = [entry for entry in baseline_entries if entry[0] not in changed]
     new_entries = []
     for path in changed:
         if Path(path).exists():
@@ -97,40 +80,7 @@ def main():
                 print('   ', entry)
             new_entries.extend(extracted)
         else:
-            print(f'  {path}: deleted in dev, dropping its baseline entries')
-
-    text = README.read_text(encoding='utf-8')
-    lines = text.split('\n')
-    try:
-        h = lines.index(HEADING)
-    except ValueError:
-        print('ERROR: TODO section heading not found')
-        sys.exit(1)
-
-    e = None
-    for i in range(h + 1, len(lines)):
-        if lines[i].startswith('## '):
-            e = i
-            break
-    if e is None:
-        print('ERROR: heading after TODO section not found')
-        sys.exit(1)
-
-    before = lines[:h + 1]
-    section_lines = lines[h + 1:e]
-    after = lines[e:]
-
-    kept = []
-    old_count = 0
-    for line in section_lines:
-        m = ENTRY_RE.match(line)
-        if not m:
-            continue
-        old_count += 1
-        path = m.group('path')
-        if path not in changed:
-            kept.append((path, int(m.group('line')), m.group('text')))
-
+            print(f'  {path}: deleted in dev')
     all_entries = kept + new_entries
     seen = set()
     deduped = []
@@ -139,18 +89,33 @@ def main():
             seen.add(entry)
             deduped.append(entry)
     deduped.sort(key=lambda item: (item[0], item[1]))
+    entry_lines = [f'- [ ] **{path}:{lineno}** - {text}'
+                   for path, lineno, text in deduped]
+    return entry_lines, len(deduped)
 
-    entry_lines = [f'- [ ] **{path}:{lineno}** - {todo_text}'
-                   for path, lineno, todo_text in deduped]
-    new_lines = before + [''] + entry_lines + [''] + after
+
+def main():
+    baseline_readme = git_show('origin/main', 'README.md')
+    _, _, _, baseline_entries = parse_entries(baseline_readme)
+    print('Baseline TODO entries from origin/main:', len(baseline_entries))
+
+    changed = changed_py_files()
+    print('Changed source .py files (main..dev):', changed)
+
+    entry_lines, new_count = build_entry_lines(baseline_entries, changed)
+
+    current_text = README.read_text(encoding='utf-8')
+    lines, h, e, current_entries = parse_entries(current_text)
+    print('Current TODO entries:', len(current_entries), '-> corrected:', new_count)
+
+    new_lines = lines[:h + 1] + [''] + entry_lines + [''] + lines[e:]
     new_text = '\n'.join(new_lines)
 
-    if new_text == text:
+    if new_text == current_text:
         print('No README changes needed.')
         return
-
     README.write_text(new_text, encoding='utf-8')
-    print(f'README updated: {old_count} -> {len(deduped)} TODO entries')
+    print('README TODO section rebuilt successfully.')
 
 
 if __name__ == '__main__':
