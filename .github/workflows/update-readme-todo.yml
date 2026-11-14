@@ -1,7 +1,9 @@
 name: Update README TODO List
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - dev
 
 permissions:
   contents: write
