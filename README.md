@@ -271,19 +271,6 @@ LUFFY/
 - [ ] **luffy/verl/verl/workers/sharding_manager/megatron_vllm.py:76** - after binding to the memory buffer, we can load the checkpoint here
 - [ ] **luffy/verl/verl/workers/sharding_manager/megatron_vllm.py:253** - (sgm): this may not be true for FSDP -> vLLM
 - [ ] **luffy/verl/verl/workers/sharding_manager/megatron_vllm.py:323** - (zhangchi.usc1992) We can consider copy non-tp weight to another infer buffer.
-- [ ] **tools/update_readme_todo.py:2** - List' section with the current dev code.
-- [ ] **tools/update_readme_todo.py:5** - list as the baseline.
-- [ ] **tools/update_readme_todo.py:6** - additions/removals/line updates introduced by main..dev changes.
-- [ ] **tools/update_readme_todo.py:7** - s.
-- [ ] **tools/update_readme_todo.py:21** - List'
-- [ ] **tools/update_readme_todo.py:26** - entries from a Python file using the baseline's rule."""
-- [ ] **tools/update_readme_todo.py:30** - ')
-- [ ] **tools/update_readme_todo.py:68** - picture."""
-- [ ] **tools/update_readme_todo.py:83** - markers across {files} .py files')
-- [ ] **tools/update_readme_todo.py:95** - (s) in dev')
-- [ ] **tools/update_readme_todo.py:107** - section heading not found')
-- [ ] **tools/update_readme_todo.py:116** - section not found')
-- [ ] **tools/update_readme_todo.py:153** - entries')
 
 ## 🤝 Contributing
 
